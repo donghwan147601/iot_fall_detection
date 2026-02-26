@@ -1,29 +1,38 @@
 # main.py
 import threading
-from fall_detection import run_detection, reset_detection_state
-from send_alarm import say_are_you_ok  # "OK" 또는 "ALERT"를 반환해야 함
+from fall_detection import run_detection, _reset_detection_state # Changed to match your fall_detection.py
+from send_alarm import say_are_you_ok  # Expected to return "OK" or "ALERT"
 
 def _guard_flow():
-    """백그라운드에서 질문→10초 대기→판단."""
+    """
+    Handles the background verification flow: 
+    Ask "Are you okay?" -> Wait for response/timeout -> Determine action.
+    """
     try:
-        result = say_are_you_ok()  # "OK" or "ALERT"
+        # Blocks only within this thread while waiting for voice/STT response
+        result = say_are_you_ok()  # Returns "OK" or "ALERT"
+        
         if result == "OK":
-            # 정상 응답이면 감지 상태 리셋 (낙상 감지는 계속 순환 중)
-            reset_detection_state()
+            # If user responds "OK", reset the detection state to resume normal monitoring
+            _reset_detection_state()
+            print("[guard] User responded 'OK'. Resetting state.")
         else:
-            # 응답 없음/다른 말이면 아무 것도 안 함(기존 낙상 처리 계속)
+            # If no response or help is requested, take no action (continue fall alert process)
+            print("[guard] Alert confirmed or no response. Proceeding with emergency protocol.")
             pass
     except Exception as e:
-        print(f"[guard] 오류: {e}")
+        print(f"[guard] Error in verification flow: {e}")
 
 def on_fall_async():
     """
-    fall_detection.run_detection(on_fall=...) 에 전달되는 콜백.
-    여기서는 '스레드만' 띄우고 즉시 리턴 → 감지 루프는 멈추지 않음.
+    Asynchronous callback passed to fall_detection.run_detection.
+    Starts the verification thread and returns immediately to keep the detection loop running.
     """
+    # Start the verification flow in a daemon thread so it doesn't freeze the video feed
     threading.Thread(target=_guard_flow, daemon=True).start()
-    # 반환값 없음: 비동기이므로 즉시 복귀
+    # No return value: Returns immediately as it is asynchronous
 
 if __name__ == "__main__":
-    # 낙상 감지 루프 시작 (on_fall 비동기 콜백 연결)
+    # Start the main fall detection loop with the asynchronous callback
+    print("[main] Starting fall detection system...")
     run_detection(on_fall=on_fall_async)
